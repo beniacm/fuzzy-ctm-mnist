@@ -1,0 +1,104 @@
+# Fuzzy Convolutional Tsetlin Machine — MNIST (99.2%)
+
+A compact, dependency-light **Fuzzy Convolutional Tsetlin Machine (FCTM)** in pure Julia that
+trains on MNIST to **99.2% test accuracy** — competitive with the Convolutional Tsetlin Machine
+literature (~99.4%) and well above a plain Tsetlin Machine (~98.2%).
+
+A Tsetlin Machine learns **interpretable conjunctive clauses** over boolean features using
+Tsetlin automata and integer reinforcement — no gradients, no floating point, just bitwise
+ops and counters. This implementation adds two ingredients that lift it to ~99%:
+
+- **Convolution (weight sharing):** each clause is evaluated over every sliding 10×10 patch and
+  votes from its best-matching patch — a translation-tolerant, memory-cheap inductive bias.
+- **Fuzzy voting:** a clause casts a *graded* vote `max(0, LF − failed_literals)` instead of a
+  hard fire/no-fire, softening the decision boundary.
+
+Both act as **regularizers**, which is why this model generalizes well (see the train/test gap below).
+
+## Results
+
+| model | MNIST **test** acc | **train** acc | gap |
+|---|---|---|---|
+| plain Tsetlin Machine | ~98.2% | ~99.9% | 1.7 pts |
+| **this (fuzzy conv TM)** | **99.2%** | **99.5%** | **0.33 pts** |
+
+The small train/test gap (5× tighter than a plain TM) shows the convolution + fuzziness are
+regularizing rather than memorizing.
+
+## Quick start
+
+```bash
+# install deps (CPU-only users may drop AMDGPU from Project.toml)
+julia --project -e 'using Pkg; Pkg.instantiate()'
+
+# CPU — portable, reaches ~99.2% (~22 s/epoch, full 40-epoch run ~15 min, multi-threaded)
+julia --project -t auto train.jl
+
+# quicker preview (~99.0%, a few minutes)
+julia --project -t auto train.jl --cpc 160 --epochs 15
+
+# AMD ROCm acceleration (~3× faster, ~7 s/epoch; needs an AMD GPU + AMDGPU.jl)
+julia --project -t auto train.jl --backend gpu
+```
+
+MNIST is downloaded automatically on first run (or point `--data DIR` at local IDX files).
+
+## How it works (one sample)
+
+1. **Booleanize** the 28×28 image with adaptive-Gaussian thresholding (local mean − C). This
+   matters: a single global threshold caps ~1 pt lower.
+2. **Patch literals:** for each of the 19×19 sliding 10×10 patches, build a 320-bit literal
+   vector `{features, ¬features}` (100 pixels + 36 x/y position-thermometer bits, padded to 160,
+   then negated), bit-packed into 5 × `UInt64`.
+3. **Evaluate** every clause: its vote is `max(0, LF − min over patches of failed literals)`
+   (the best-matching patch). Class score = signed sum of its clauses' votes; predict argmax.
+4. **Feedback** (Tsetlin Type I / Ib / II) reinforces the true class `y` and penalizes one random
+   rival class `q ≠ y`, clamped by a vote target `T`.
+
+Training is online (sample *i* updates the automata read by *i+1*) but every sample's work is
+**parallel over the `10 × CPC` clauses** — the CPU backend threads over clauses, the GPU backend
+runs one work-item per clause.
+
+## Configuration
+
+| flag | default | meaning |
+|---|---|---|
+| `--cpc` | 320 | clauses per class (half +, half − polarity) |
+| `--lf` | 16 | fuzziness (graded-vote width) |
+| `--epochs` | 40 | training passes |
+| `--backend` | cpu | `cpu` or `gpu` (AMD ROCm) |
+| `--no-adaptive` | off | use a global threshold instead of adaptive-Gaussian |
+| `--train-n` / `--eval-n` | all | subset sizes |
+
+Other knobs (`L` include cap, `s` Type-Ib draws, `T` vote target) are in `FCTM(...)`.
+
+## Files
+
+```
+src/FuzzyCTM.jl      core algorithm (CPU, multi-threaded, pure Julia)
+src/FuzzyCTMGPU.jl   optional AMD ROCm / AMDGPU.jl backend (bit-exact, ~3–10× faster)
+src/MNISTData.jl     MNIST download + adaptive-Gaussian booleanization (pure Julia)
+train.jl             full pipeline: load → binarize → train → test
+```
+
+The library API is small:
+
+```julia
+using .FuzzyCTM, .MNISTData
+Xtr, Ytr, Xte, Yte = load_mnist("data")          # 784×N Bool, labels 0:9
+m = FCTM(; cpc=320, lf=16)
+fit!(m, Xtr, Ytr; epochs=40, evalX=Xte, evalY=Yte)
+accuracy(m, Xte, Yte)
+```
+
+## Provenance & references
+
+Extracted from an FPGA Tsetlin-Machine accelerator project (the same algorithm runs on an
+Arria 10 at 9 W). The CPU and GPU backends are bit-exact to each other.
+
+- O.-C. Granmo, *The Tsetlin Machine* (2018), arXiv:1804.01508
+- O.-C. Granmo et al., *The Convolutional Tsetlin Machine* (2019), arXiv:1905.09688
+
+## License
+
+MIT — see [LICENSE](LICENSE).
