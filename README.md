@@ -11,7 +11,9 @@ ops and counters. This implementation adds two ingredients that lift it to ~99%:
 - **Convolution (weight sharing):** each clause is evaluated over every sliding 10×10 patch and
   votes from its best-matching patch — a translation-tolerant, memory-cheap inductive bias.
 - **Fuzzy voting:** a clause casts a *graded* vote `max(0, LF − failed_literals)` instead of a
-  hard fire/no-fire, softening the decision boundary.
+  hard all-or-nothing fire — the [Fuzzy-Pattern Tsetlin Machine](https://arxiv.org/abs/2508.08350)
+  mechanism (Hnilov 2025), where a clause's surviving literals still contribute a proportionally
+  reduced score rather than being disqualified by a single failed literal.
 
 Both act as **regularizers**, which is why this model generalizes well (see the train/test gap below).
 
@@ -98,6 +100,8 @@ Arria 10 at 9 W). The CPU and GPU backends are bit-exact to each other.
 
 - O.-C. Granmo, *The Tsetlin Machine* (2018), arXiv:1804.01508
 - O.-C. Granmo et al., *The Convolutional Tsetlin Machine* (2019), arXiv:1905.09688
+- A. Hnilov, *Fuzzy-Pattern Tsetlin Machine* (2025), arXiv:2508.08350 — the graded-vote
+  ("fuzzy") clause evaluation used here ([Tsetlin.jl](https://github.com/BooBSD/Tsetlin.jl))
 
 ## License
 
