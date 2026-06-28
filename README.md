@@ -53,6 +53,25 @@ julia --project -t auto train.jl --backend gpu --stride 2      # 0.9901 in ~3 mi
 julia --project -t auto train.jl --stride 2                    # CPU, 0.9901 in ~7 min
 ```
 
+### Scaling beyond 99.2%
+
+The default `CPC=320` is the *fast* sweet spot, not the accuracy ceiling. More clauses keep helping
+— but big machines need proportionally **more epochs** to converge (the automata diffuse slower), so
+short runs *under-train* them and make extra clauses look useless. The rule of thumb is **epochs ≈ CPC/12**:
+
+| CPC | clauses | epochs | test acc | notes |
+|---|---|---|---|---|
+| 320 | 3,200 | 40 | 0.9921 | default (fast) |
+| 1056 | 10,560 | 88 | 0.9929 | smallest config holding 0.993 |
+| **1280** | **12,800** | **128** | **0.9940** | best on record (peak @ ep119) |
+
+```bash
+julia --project -t auto train.jl --backend gpu --cpc 1280 --epochs 128   # 0.994, ~65 min on a Radeon 8060S
+```
+
+At `CPC=1280` this clears the [Convolutional TM paper's 8000-clause headline (0.9933)](https://arxiv.org/abs/1905.09688)
+by training **0.994** — at the cost of ~16× the compute of the default config. Strongly GPU-recommended.
+
 ## Quick start
 
 ```bash
