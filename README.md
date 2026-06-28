@@ -27,6 +27,32 @@ Both act as **regularizers**, which is why this model generalizes well (see the 
 The small train/test gap (5× tighter than a plain TM) shows the convolution + fuzziness are
 regularizing rather than memorizing.
 
+## Performance (CPU vs GPU, stride 1 vs 2)
+
+Measured on one machine — a 16-thread CPU and an AMD Radeon 8060S iGPU (ROCm) — at the default
+`CPC=320, lf=16`, full 60k-train / 10k-test, steady-state epoch:
+
+| backend | stride | patches/img | test acc | train throughput | train / epoch | full 40-ep run |
+|---|---|---|---|---|---|---|
+| CPU (16 threads) | 1 | 361 | **0.9921** | 3.3k samp/s | 18.3 s | ~14 min |
+| **GPU (ROCm)**   | 1 | 361 | **0.9921** | **11.7k samp/s** | **5.1 s** | **~4 min** |
+| CPU (16 threads) | 2 | 100 | 0.9901 | 6.2k samp/s | 9.7 s | ~7 min |
+| **GPU (ROCm)**   | 2 | 100 | 0.9901 | **14.6k samp/s** | **4.1 s** | **~3 min** |
+
+- **GPU vs CPU** — ~3.5× faster training at stride 1 (one GPU work-item per clause vs CPU threads
+  over clauses). Both backends are **bit-exact**: identical per-epoch accuracy to 4 dp at either
+  stride, so the GPU is purely an accelerator, not a different model.
+- **stride 2 vs 1** — a coarser patch grid (10×10 = 100 origins instead of 19×19 = 361) trains
+  ~1.9× faster on CPU for a **0.20 pt** accuracy cost (0.9901 vs 0.9921). Evaluation scales even
+  better with stride (the per-clause include-build is a fixed cost that only training pays). Use
+  `--stride 2` when you want most of the accuracy at roughly half the training time.
+
+```bash
+julia --project -t auto train.jl --backend gpu                 # 0.9921 in ~4 min
+julia --project -t auto train.jl --backend gpu --stride 2      # 0.9901 in ~3 min
+julia --project -t auto train.jl --stride 2                    # CPU, 0.9901 in ~7 min
+```
+
 ## Quick start
 
 ```bash
@@ -67,6 +93,7 @@ runs one work-item per clause.
 |---|---|---|
 | `--cpc` | 320 | clauses per class (half +, half − polarity) |
 | `--lf` | 16 | fuzziness (graded-vote width) |
+| `--stride` | 1 | patch step in pixels; `2` scans a coarser grid (~3.6× fewer patches, faster, ~0.2pt cost) |
 | `--epochs` | 40 | training passes |
 | `--backend` | cpu | `cpu` or `gpu` (AMD ROCm) |
 | `--no-adaptive` | off | use a global threshold instead of adaptive-Gaussian |

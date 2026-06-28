@@ -28,7 +28,7 @@ function main()
     a = parse_args()
     geti(k,d) = haskey(a,k) ? parse(Int, a[k]) : d
     backend = get(a, "backend", "cpu")
-    cpc=geti("cpc",320); lf=geti("lf",16); epochs=geti("epochs",40)
+    cpc=geti("cpc",320); lf=geti("lf",16); epochs=geti("epochs",40); stride=geti("stride",1)
     data = get(a, "data", joinpath(@__DIR__, "data"))
     adaptive = !haskey(a, "no-adaptive")
     seed = haskey(a,"seed") ? parse(UInt64, a["seed"]) : 0x123456789ABCDEF1
@@ -38,18 +38,18 @@ function main()
     tn = min(geti("train-n", size(Xtr,2)), size(Xtr,2))
     en = min(geti("eval-n",  size(Xte,2)), size(Xte,2))
     Xtr, Ytr, Xte, Yte = Xtr[:,1:tn], Ytr[1:tn], Xte[:,1:en], Yte[1:en]
-    println("train $tn / test $en | backend=$backend | CPC=$cpc lf=$lf epochs=$epochs | threads=$(Threads.nthreads())")
+    println("train $tn / test $en | backend=$backend | CPC=$cpc lf=$lf stride=$stride epochs=$epochs | threads=$(Threads.nthreads())")
 
     if backend == "cpu"
-        m = FCTM(; cpc=cpc, lf=lf, seed=seed)
+        m = FCTM(; cpc=cpc, lf=lf, stride=stride, seed=seed)
         best = fit!(m, Xtr, Ytr; epochs=epochs, evalX=Xte, evalY=Yte)
     else
         include(joinpath(@__DIR__, "src", "FuzzyCTMGPU.jl"))   # loads AMDGPU only when --backend gpu
         best = Base.invokelatest(Main.FuzzyCTMGPU.gpu_train, Xtr, Ytr, Xte, Yte;
-                                 cpc=cpc, lf=lf, epochs=epochs, seed=seed)
+                                 cpc=cpc, lf=lf, stride=stride, epochs=epochs, seed=seed)
     end
     println("="^48)
-    println("BEST TEST ACCURACY = $(round(best, digits=4))   (CPC=$cpc, lf=$lf, $epochs epochs)")
+    println("BEST TEST ACCURACY = $(round(best, digits=4))   (CPC=$cpc, lf=$lf, stride=$stride, $epochs epochs)")
 end
 
 main()

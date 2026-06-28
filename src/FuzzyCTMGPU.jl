@@ -41,9 +41,9 @@ function build_posbits(NP1, NPOS, POSF)
     end
     return pb
 end
-function sample_literals!(dst, base, img, pb, NP1, NPOS, PW, PXF, POSF, IMG)
+function sample_literals!(dst, base, img, pb, NP1, NPOS, PW, PXF, POSF, IMG, ST)
     @inbounds for p in 0:NPOS-1
-        ox=p%NP1; oy=p÷NP1; w1=UInt64(0); w2=UInt64(0); w3=UInt64(0)
+        ox=(p%NP1)*ST; oy=(p÷NP1)*ST; w1=UInt64(0); w2=UInt64(0); w3=UInt64(0)
         for ry in 0:PW-1
             b=(oy+ry)*IMG+ox
             for rx in 0:PW-1
@@ -61,10 +61,10 @@ function sample_literals!(dst, base, img, pb, NP1, NPOS, PW, PXF, POSF, IMG)
         o=base+p*WORDS; dst[o+1]=w1; dst[o+2]=w2; dst[o+3]=w3; dst[o+4]=w4; dst[o+5]=w5
     end
 end
-function precompute_all(X, n, pb, NP1, NPOS, PW, PXF, POSF, IMG)
+function precompute_all(X, n, pb, NP1, NPOS, PW, PXF, POSF, IMG, ST)
     litw = Vector{UInt64}(undef, WORDS*NPOS*n)
     Threads.@threads for i in 1:n
-        sample_literals!(litw, (i-1)*WORDS*NPOS, @view(X[:,i]), pb, NP1, NPOS, PW, PXF, POSF, IMG)
+        sample_literals!(litw, (i-1)*WORDS*NPOS, @view(X[:,i]), pb, NP1, NPOS, PW, PXF, POSF, IMG, ST)
     end
     return litw
 end
@@ -150,14 +150,14 @@ const GS = 256
               img=28, pw=10, seed=0x123456789ABCDEF1, verbose=true) -> best_test_acc
 """
 function gpu_train(Xtr, Ytr, Xte, Yte; cpc=320, lf=16, L=16, s=3, T=64, epochs=40,
-                   img=28, pw=10, seed::UInt64=0x123456789ABCDEF1, verbose=true)
-    @assert (T&(T-1))==0 && cpc%2==0
-    C=10; NP1=img-pw+1; NPOS=NP1*NP1; PXF=pw*pw; POSF=2*(NP1-1); NCLA=C*cpc
+                   img=28, pw=10, stride=1, seed::UInt64=0x123456789ABCDEF1, verbose=true)
+    @assert (T&(T-1))==0 && cpc%2==0 && stride>=1
+    C=10; NP1=(img-pw)÷stride+1; NPOS=NP1*NP1; PXF=pw*pw; POSF=2*(NP1-1); NCLA=C*cpc
     ntr=size(Xtr,2); nte=size(Xte,2)
     pb = build_posbits(NP1, NPOS, POSF)
     verbose && (print("precompute + upload literals..."); flush(stdout))
-    litw_tr = ROCArray(precompute_all(Xtr, ntr, pb, NP1, NPOS, pw, PXF, POSF, img))
-    litw_te = ROCArray(precompute_all(Xte, nte, pb, NP1, NPOS, pw, PXF, POSF, img))
+    litw_tr = ROCArray(precompute_all(Xtr, ntr, pb, NP1, NPOS, pw, PXF, POSF, img, stride))
+    litw_te = ROCArray(precompute_all(Xte, nte, pb, NP1, NPOS, pw, PXF, POSF, img, stride))
     ta  = AMDGPU.zeros(UInt8, NTA*NCLA); fill!(ta, INIT_S)
     rngh = Vector{UInt64}(undef, NCLA); for c in 0:NCLA-1; rngh[c+1]=seed⊻(UInt64(c)*GOLDEN_MUL); end
     rng = ROCArray(rngh)
